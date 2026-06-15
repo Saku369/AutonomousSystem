@@ -45,9 +45,9 @@ class MaterialCollectingEnvironment(Environment):
         self.dir_rec_height = self.agent_size * 1.5
 
         # Communication and sensor ranges
-        self.communication_range_radius = 250.0
-        self.sensor_range_radius = 150.0
-        self.sensor_angle = 120.0
+        self.communication_range_radius = 250.0 #通信可能範囲
+        self.sensor_range_radius = 150.0 #距離センサの検知範囲
+        self.sensor_angle = 120.0 #〃
 
         # Agent colors and opacities
         self.agent_body_color = (200, 0, 0)
