@@ -17,8 +17,8 @@ class TestMaterialCollectingAgent(MaterialCollectingAgent):
         self.lost_material_count = 0    # 資源を見失ったときのカウント用
 
     def act(self):
-       # =================================================================
-        # 1. センサ情報の取得 (毎フレーム必ず読み込みます)
+        # =================================================================
+        # 1. センサ情報の取得
         # =================================================================
         sensor_type = self.params.sensor_object_type       
         sensor_distance = self.params.sensor_object_distance   
@@ -26,101 +26,94 @@ class TestMaterialCollectingAgent(MaterialCollectingAgent):
         collision = self.params.collision_sensor           
 
         # =================================================================
-        # 2. ターミナルへのデバッグ出力（ID0のリーダーのみ出力）
-        # =================================================================
-        if self.id == self.leader_id:
-            print("\n" + "="*50)
-            print(f"[エージェント ID:{self.id} のセンサ情報判定] / 現在のモード: 【{self.mode}】")
-            print("="*50)
-
-            # ① 衝突センサの判定
-            is_collided = (collision == MaterialCollectingAgentParameters.SENSE_COLLIDED)
-            print(f"■ 衝突センサ(collision_sensor) : {collision} （判定: {'★衝突中！' if is_collided else '安全' }）")
-            print("-" * 50)
-
-            # ② 5方向センサ情報の出力
-            print("■ 5方向センサ（0:左端, 1:左前, 2:正面(青線), 3:右前, 4:右端）")
-            type_labels = {0: "なし (NONE)", 1: "他エージェント (AGENT)", 2: "障害物 (OBSTACLE)", 3: "資源 (MATERIAL)"}
-
-            for i in range(5):
-                t_val = sensor_type[i]
-                dist = sensor_distance[i]
-                attr = sensor_attribute[i]
-                label = type_labels.get(t_val, f"未知の数値({t_val})")
-                
-                attr_info = ""
-                if t_val == MaterialCollectingAgentParameters.SENSE_MATERIAL:
-                    attr_info = f" -> [資源の半径: {attr:.2f}]"
-                elif t_val == MaterialCollectingAgentParameters.SENSE_AGENT:
-                    attr_info = f" -> [検知した他ロボット of ID: {attr}]"
-
-                print(f"  ・セグメント [{i}]: 種別={label} | 距離={dist:.1f}{attr_info}")
-            print("="*50)
-
-            # 💡 【デバッグ用ストッパー】
-            # もし獲得中（停止中）にログが流れるのが早すぎて見えない場合は、
-            # 下の2行のコメントアウト(#)を外すと、獲得中だけEnterキーでの「コマ送り」にできます。
-            # if self.mode == "COLLECT":
-            #     input("【獲得中ストップ】Enterキーを押すと次の1コマ（フレーム）に進みます...")
-
-        # =================================================================
-        # 3. 役割に応じた行動分岐
+        # 2. 役割に応じた行動分岐（初期化・最優先処理）
         # =================================================================
         
-        # 3-A. フォロワー（ID1～4）の処理：フェーズ1では安全のために完全停止
-        if self.id != self.leader_id:
+        # ID2〜4 のフォロワーは完全停止のまま固定
+        if self.id > 1:
             self.params.action = MaterialCollectingAgentParameters.ACT_STANDSTILL
-            self.params.communication_message = f"STANDSTILL:{self.id}"
             return
 
-        # 3-B. リーダー（ID0）の最優先処理：障害物・他ロボットとの衝突回避
-        if collision == MaterialCollectingAgentParameters.SENSE_COLLIDED:
-            self.mode = "SEARCH" # 衝突したら一度回収を諦めて検索モードへリセット
-            self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
-            self.params.angular_velocity = random.uniform(40, 80)
-            self.params.communication_message = f"LEADER_AVOID:{self.id}"
-            return
+        # -----------------------------------------------------------------
+        # 2-A. 【リーダー（ID0）の衝突回避】※完全に以前の「壁（OBSTACLE）専用」に固定
+        # -----------------------------------------------------------------
+        if self.id == self.leader_id:
+            if collision == MaterialCollectingAgentParameters.SENSE_COLLIDED:
+                self.mode = "SEARCH" 
+                left_wall_dist, right_wall_dist = 150.0, 150.0
+                for i in [0, 1]:
+                    if sensor_type[i] == MaterialCollectingAgentParameters.SENSE_OBSTACLE:
+                        if sensor_distance[i] < left_wall_dist: left_wall_dist = sensor_distance[i]
+                for i in [3, 4]:
+                    if sensor_type[i] == MaterialCollectingAgentParameters.SENSE_OBSTACLE:
+                        if sensor_distance[i] < right_wall_dist: right_wall_dist = sensor_distance[i]
 
-        # 3-C. リーダー（ID0）の通常行動
-        # 周囲5方向に資源（SENSE_MATERIAL = 3）があるか一括チェック
+                self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
+                self.params.angular_velocity = 45 if left_wall_dist <= right_wall_dist else -45 
+                return
+
+        # -----------------------------------------------------------------
+        # 2-B. 【フォロワー（ID1）の衝突回避】※壁に加えて、リーダー（AGENT）も避ける
+        # -----------------------------------------------------------------
+        else:
+            if collision == MaterialCollectingAgentParameters.SENSE_COLLIDED:
+                self.mode = "SEARCH" 
+                left_dist, right_dist = 150.0, 150.0
+                # フォロワーは壁（OBSTACLE）もリーダー（AGENT）も「ぶつかる障害物」として距離を測る
+                for i in [0, 1]:
+                    if sensor_type[i] in [MaterialCollectingAgentParameters.SENSE_OBSTACLE, MaterialCollectingAgentParameters.SENSE_AGENT]:
+                        if sensor_distance[i] < left_dist: left_dist = sensor_distance[i]
+                for i in [3, 4]:
+                    if sensor_type[i] in [MaterialCollectingAgentParameters.SENSE_OBSTACLE, MaterialCollectingAgentParameters.SENSE_AGENT]:
+                        if sensor_distance[i] < right_dist: right_dist = sensor_distance[i]
+
+                self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
+                self.params.angular_velocity = 45 if left_dist <= right_dist else -45 
+                return
+
+        # 5方向センサから「資源」と「リーダー」のインデックスを見つける
         material_idx = -1
+        leader_idx = -1
         for i in range(5):
             if sensor_type[i] == MaterialCollectingAgentParameters.SENSE_MATERIAL:
-                material_idx = i
-                break
+                if material_idx == -1: material_idx = i
+            if sensor_type[i] == MaterialCollectingAgentParameters.SENSE_AGENT and sensor_attribute[i] == self.leader_id:
+                if leader_idx == -1: leader_idx = i
 
         # -----------------------------------------------------------------
-        # ▼ パターンA：すでに「回収モード(COLLECT)」に入っている場合
+        # ▼ パターンA：回収モード(COLLECT)の場合（全エージェント共通仕様で固定）
         # -----------------------------------------------------------------
         if self.mode == "COLLECT":
-            if material_idx == -1:
-                # 周囲から完全に資源の反応が消えた ＝ 資源量が0になって本当に消滅した瞬間！
-                print("【システムログ】資源の消滅（回収完了）を確認！探索モードに戻ります。")
-                self.mode = "SEARCH"
-                self.params.action = MaterialCollectingAgentParameters.ACT_GO_FORWARD # すぐ次の探索へ
-                self.params.velocity = MaterialCollectingAgentParameters.MAX_VELOCITY * 0.7
-            else:
-                # まだ周囲に資源の反応がある（まだ残量がある）なら、その場で停止して吸い続ける
+            still_inside = False
+            if material_idx != -1:
+                current_radius = sensor_attribute[material_idx]   
+                current_distance = sensor_distance[material_idx]  
+                if current_distance <= current_radius:
+                    still_inside = True
+
+            if still_inside:
                 self.params.action = MaterialCollectingAgentParameters.ACT_STANDSTILL
                 self.params.communication_message = f"COLLECTING:{self.id}"
+            else:
+                self.mode = "SEARCH"
+                self.params.action = MaterialCollectingAgentParameters.ACT_GO_FORWARD 
+                self.params.velocity = MaterialCollectingAgentParameters.MAX_VELOCITY * 0.7
+                self.params.communication_message = f"FORWARD:{self.id}"
 
         # -----------------------------------------------------------------
-        # ▼ パターンB：「探索モード(SEARCH)」の場合
+        # ▼ パターンB：探索・移動モード(SEARCH)の場合
         # -----------------------------------------------------------------
         elif self.mode == "SEARCH":
-            # 資源が見つかっているなら接近判定
+            # ① 目の前に資源があるなら最優先で突入（全エージェント共通仕様で固定）
             if material_idx != -1:
-                material_radius = sensor_attribute[material_idx] # 資源の半径
-                distance = sensor_distance[material_idx]          # 資源までの距離
+                material_radius = sensor_attribute[material_idx]
+                distance = sensor_distance[material_idx]
+                brake_threshold = material_radius + 5.0
 
-                # 【距離 <= 半径】になったら、資源の内部に入ったので回収モードにロック！
-                if distance <= material_radius:
-                    print("【システムログ】資源内部への突入を検知。回収モード(COLLECT)を開始します。")
+                if distance <= brake_threshold:
                     self.mode = "COLLECT"
                     self.params.action = MaterialCollectingAgentParameters.ACT_STANDSTILL
-                    self.params.communication_message = f"START_COLLECT:{self.id}"
                 else:
-                    # まだ外側にいるので、資源がある方向に向かって近づく
                     if material_idx == 2:
                         self.params.action = MaterialCollectingAgentParameters.ACT_GO_FORWARD
                         self.params.velocity = MaterialCollectingAgentParameters.MAX_VELOCITY * 0.8
@@ -130,16 +123,49 @@ class TestMaterialCollectingAgent(MaterialCollectingAgent):
                     else:
                         self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
                         self.params.angular_velocity = 25
-                    self.params.communication_message = f"LEADER_APPROACH:{self.id}"
 
-            # 資源がどこにも見つからないときはランダム探索
+            # ② 資源がない場合の行動（ここで完全に役割を分離！）
             else:
-                action_dice = random.randint(0, 4)
-                if action_dice != 4:
+                # ---------------------------------------------------------
+                # 【リーダー（ID0）の行動】※一切他人に惑わされず、常に巡回探索
+                # ---------------------------------------------------------
+                if self.id == self.leader_id:
                     self.params.action = MaterialCollectingAgentParameters.ACT_GO_FORWARD
-                    self.params.velocity = MaterialCollectingAgentParameters.MAX_VELOCITY * 0.7
-                    self.params.communication_message = f"LEADER_FORWARD:{self.id}"
+                    self.params.velocity = MaterialCollectingAgentParameters.MAX_VELOCITY * 0.8
+                    self.params.communication_message = f"LEADER_PATROL"
+
+                # ---------------------------------------------------------
+                # 【フォロワー（ID1）の行動】
+                # ---------------------------------------------------------
                 else:
-                    self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
-                    self.params.angular_velocity = random.uniform(-30, 30)
-                    self.params.communication_message = f"LEADER_ROTATE:{self.id}"
+                    # リーダーが視界にいるなら距離をキープしながら追従
+                    if leader_idx != -1:
+                        leader_dist = sensor_distance[leader_idx]
+
+                        if leader_dist > self.max_leader_distance:
+                            if leader_idx == 2:
+                                self.params.action = MaterialCollectingAgentParameters.ACT_GO_FORWARD
+                                self.params.velocity = MaterialCollectingAgentParameters.MAX_VELOCITY * 0.8
+                            elif leader_idx < 2:
+                                self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
+                                self.params.angular_velocity = -25
+                            else:
+                                self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
+                                self.params.angular_velocity = 25
+                        elif leader_dist < self.min_leader_distance:
+                            self.params.action = MaterialCollectingAgentParameters.ACT_STANDSTILL
+                        else:
+                            if leader_idx == 2:
+                                self.params.action = MaterialCollectingAgentParameters.ACT_STANDSTILL
+                            elif leader_idx < 2:
+                                self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
+                                self.params.angular_velocity = -20
+                            else:
+                                self.params.action = MaterialCollectingAgentParameters.ACT_ROTATE
+                                self.params.angular_velocity = 20
+                    
+                    # リーダーが視界にいないなら自律して巡回探索
+                    else:
+                        self.params.action = MaterialCollectingAgentParameters.ACT_GO_FORWARD
+                        self.params.velocity = MaterialCollectingAgentParameters.MAX_VELOCITY * 0.8
+                        self.params.communication_message = f"FOLLOWER_PATROL"
