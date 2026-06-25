@@ -4,7 +4,7 @@ from pyglet import *
 import random
 from material_collecting_environment import MaterialCollectingEnvironment
 from material_collecting_agent import MaterialCollectingAgent
-from test_material_collecting_agent import TestMaterialCollectingAgent
+from reader_material_collecting_agent import ReaderMaterialCollectingAgent
 
 
 frame_x, frame_y = 800, 600
@@ -39,7 +39,7 @@ class FrameManager:
 
         num_agent = 5
         for i in range(num_agent):
-            mc_agent = TestMaterialCollectingAgent()
+            mc_agent = ReaderMaterialCollectingAgent()
             mc_env.register_agent(mc_agent)
 
         self.environment = mc_env
